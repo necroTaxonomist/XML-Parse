@@ -6,19 +6,45 @@ import java.io.FileInputStream;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
-public class XMLStruct
+public class XMLStruct implements Cloneable
 {
-    ArrayList<Child> children;
-    String type;
-    ArrayList<Argument> args;
-    boolean keepWS;
+    private ArrayList<Child> children;
+    private String type;
+    private ArrayList<Attribute> attribs;
+    private boolean keepWS;
+
+    // Constructors
 
     public XMLStruct()
     {
         children = new ArrayList<Child>();
         type = "";
-        args = new ArrayList<Argument>();
+        attribs = new ArrayList<Attribute>();
         keepWS = true;
+    }
+
+    public XMLStruct(XMLStruct xml)
+    {
+        this();
+
+        for (Child c : xml.children)
+        {
+            children.add(c);
+        }
+
+        type = xml.type;
+
+        for (Attribute a : xml.attribs)
+        {
+            attribs.add(a);
+        }
+
+        keepWS = xml.keepWS;
+    }
+
+    public Object clone()
+    {
+        return new XMLStruct(this);
     }
 
     public XMLStruct(String str) throws BadSyntaxException
@@ -37,7 +63,7 @@ public class XMLStruct
 
     public static XMLStruct parseFromFile(String fn) throws BadSyntaxException, IOException
     {
-        return parseFromFile(fn, true);
+        return parseFromFile(fn, false);
     }
     public static XMLStruct parseFromFile(String fn, boolean keepWS) throws BadSyntaxException, IOException
     {
@@ -58,6 +84,105 @@ public class XMLStruct
 
         return xml;
     }
+
+    // Public
+
+    public XMLStruct getChildElement(int index)
+    {
+        if (index < 0 || index >= children.size())
+            return null;
+
+        Child c = children.get(index);
+        return c.struct;
+    }
+
+    public XMLStruct getChildElement(String name)
+    {
+        for (Child c : children)
+        {
+            if (c.struct != null &&
+                c.struct.type.equals(name))
+                return c.struct;
+        }
+
+        return null;
+    }
+
+    public String getChildString(int index)
+    {
+        if (index < 0 || index >= children.size())
+            return null;
+
+        Child c = children.get(index);
+        return c.string;
+    }
+
+    public String getChildString()
+    {
+        return getChildString(0);
+    }
+
+    public String getName()
+    {
+        return type;
+    }
+
+    public int getNumAttribs()
+    {
+        return attribs.size();
+    }
+
+    public String getAttribNameFromIndex(int index)
+    {
+        if (index < 0 || index >= attribs.size())
+            return null;
+
+        Attribute a = attribs.get(index);
+        return a.name;
+    }
+
+    public String getAttribValueFromIndex(int index)
+    {
+        if (index < 0 || index >= attribs.size())
+            return null;
+
+        Attribute a = attribs.get(index);
+        return a.val;
+    }
+
+    public String getAttribValueFromName(String str)
+    {
+        for (int i = 0; i < attribs.size(); ++i)
+        {
+            Attribute a = attribs.get(i);
+            if (a.name.equals(str))
+                return a.val;
+        }
+
+        return null;
+    }
+
+    public String toString()
+    {
+        String str = "";
+
+        str += "<";
+        str += type;
+        for (Attribute a : attribs)
+            str += " " + a;
+        str += ">";
+
+        for (Child c : children)
+        {
+            str += c;
+        }
+
+        str += "</" + type + ">";
+
+        return str;
+    }
+
+    // Private
 
     private int parse(CStream<String> stream) throws BadSyntaxException
     {
@@ -123,6 +248,7 @@ public class XMLStruct
                         {
                             // Create nested
                             XMLStruct nest = new XMLStruct();
+                            nest.keepWS = keepWS;
 
                             i = nest.parse(stream, j);
                             str = stream.peek();
@@ -218,50 +344,56 @@ public class XMLStruct
         i = skipUntil(str, j, WHITESPACE, null);
         type = evalBS(str.substring(j, i));
 
-        // Get arguments
+        if (!validXMLName(type))
+            throw new BadSyntaxException("Invalid element name: " + type);
+
+        // Get attributes
         while ((j = skipWS(str, i)) < str.length())
         {
-            // Get the name of the argument
+            // Get the name of the attribute
             String name;
 
             i = skipUntil(str, j, WHITESPACE_OR_EQ, STRING_ESCAPES);
             name = evalBS(str.substring(j, i));
 
             if (name.length() == 0)
-                throw new BadSyntaxException("Argument without name: <" + str + ">");
+                throw new BadSyntaxException("Attribute without name: <" + str + ">");
+
+            if (!validXMLName(name))
+                throw new BadSyntaxException("Invalid attribute name: " + type);
 
             // Get equals sign
             j = skipWS(str, i);
 
             if (j >= str.length() || str.charAt(j) != '=')
-                throw new BadSyntaxException("Argument must be assigned with equals: <" + str + ">");
+                throw new BadSyntaxException("Attribute must be assigned with equals: <" + str + ">");
 
             i = j + 1;
 
             // Get open quote
             j = skipWS(str, i);
 
-            if (j >= str.length() || str.charAt(j) != '\"')
-                throw new BadSyntaxException("Argument value must be enclosed in quotes: <" + str + ">");
+            if (j >= str.length() || str.charAt(j) != '\"' || str.charAt(j) != '\"')
+                throw new BadSyntaxException("Attribute value must be enclosed in quotes: <" + str + ">");
 
             i = j + 1;
 
-            // Get the value of the argument
+            // Get the value of the attribute
             String val;
 
             j = i;
-            char[] close = {'\"'};
+            char[] close = {'\"', '\''};
             i = skipUntil(str, j, close, STRING_ESCAPES);
             val = evalBS(str.substring(j, i));
 
             // Get the close quote
             if (i >= str.length() || str.charAt(i) != '\"')
-                throw new BadSyntaxException("Argument value must be enclosed in quotes: <" + str + ">");
+                throw new BadSyntaxException("Attribute value must be enclosed in quotes: <" + str + ">");
 
             i = i + 1;
 
-            // Add to args list
-            args.add(new Argument(name, val));
+            // Add to attribs list
+            attribs.add(new Attribute(name, val));
         }
     }
 
@@ -284,44 +416,6 @@ public class XMLStruct
         {
             throw new BadSyntaxException("Invalid close tag: </" + str + ">");
         }
-    }
-
-    public XMLStruct getChildTag(int index)
-    {
-        if (index < 0 || index >= children.size())
-            return null;
-
-        Child c = children.get(index);
-        return c.struct;
-    }
-
-    public String getChildString(int index)
-    {
-        if (index < 0 || index >= children.size())
-            return null;
-
-        Child c = children.get(index);
-        return c.string;
-    }
-
-    public String toString()
-    {
-        String str = "";
-
-        str += "<";
-        str += type;
-        for (Argument arg : args)
-            str += " " + arg;
-        str += ">";
-
-        for (Child c : children)
-        {
-            str += c;
-        }
-
-        str += "</" + type + ">";
-
-        return str;
     }
 
     // Static
@@ -429,10 +523,8 @@ public class XMLStruct
                     case '\\':
                         str = str.substring(0, i) + "\\" + str.substring(i + 1);
                         break;
-                    case '>':
                     case '\"':
                     case '\'':
-                    case '=':
                         str = str.substring(0, i) + c + str.substring(i + 1);
                         break;
                     case 'r':
@@ -453,6 +545,39 @@ public class XMLStruct
     private static boolean onlyWS(String str)
     {
         return skipWS(str, 0) == str.length();
+    }
+
+    private static boolean validXMLName(String str)
+    {
+        if (str.length() == 0)
+            return false;
+
+        char c = str.charAt(0);
+
+        // Element names must start with a letter or underscore
+        if (!Character.isLetter(c) && c != '_')
+            return false;
+
+        // Element names cannot start with the letters xml (or XML, or Xml, etc)
+        if (str.toLowerCase().indexOf("xml") == 0)
+            return false;
+
+        for (int i = 1; i < str.length(); ++i)
+        {
+            c = str.charAt(i);
+
+            // Element names can contain letters, digits, hyphens, underscores, and periods
+            if (!Character.isLetter(c) &&
+                !Character.isDigit(c) &&
+                c != '-' &&
+                c != '_' &&
+                c != '.')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public static class BadSyntaxException extends Exception
@@ -492,12 +617,12 @@ public class XMLStruct
         }
     }
 
-    private static class Argument
+    private static class Attribute
     {
         public String name;
         public String val;
 
-        public Argument(String _name, String _val)
+        public Attribute(String _name, String _val)
         {
             name = _name;
             val = _val;
@@ -509,13 +634,15 @@ public class XMLStruct
         }
     }
 
-    public static void main(String[] args)
+    public static void main(String[] attribs)
     {
         try
         {
-            XMLStruct xml = parseFromFile("test.xml", false);
+            XMLStruct xml = parseFromFile("test.xml");
 
-            System.out.println(xml);
+            XMLStruct xml2 = (XMLStruct)xml.clone();
+
+            System.out.println(xml2);
         }
         catch (Exception e)
         {
