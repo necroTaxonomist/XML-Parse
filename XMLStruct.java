@@ -634,7 +634,7 @@ public class XMLStruct implements Cloneable
         }
     }
 
-    public static void main(String[] attribs)
+    /*public static void main(String[] attribs)
     {
         try
         {
@@ -648,5 +648,5 @@ public class XMLStruct implements Cloneable
         {
             System.out.println(e);
         }
-    }
+    }*/
 }
