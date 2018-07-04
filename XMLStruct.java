@@ -1,12 +1,24 @@
 import java.util.ArrayList;
 
+import java.io.IOException;
+import java.io.FileInputStream;
+import java.io.FileInputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 public class XMLStruct
 {
     ArrayList<Child> children;
+    String type;
+    ArrayList<Argument> args;
+    boolean keepWS;
 
     public XMLStruct()
     {
         children = new ArrayList<Child>();
+        type = "";
+        args = new ArrayList<Argument>();
+        keepWS = true;
     }
 
     public XMLStruct(String str) throws BadSyntaxException
@@ -23,6 +35,30 @@ public class XMLStruct
         parse(stream);
     }
 
+    public static XMLStruct parseFromFile(String fn) throws BadSyntaxException, IOException
+    {
+        return parseFromFile(fn, true);
+    }
+    public static XMLStruct parseFromFile(String fn, boolean keepWS) throws BadSyntaxException, IOException
+    {
+        CStream<String> stream = new CStream<String>();
+
+        FileInputStream fis = new FileInputStream(fn);
+    	BufferedReader br = new BufferedReader(new InputStreamReader(fis));
+
+    	String l = null;
+    	while ((l = br.readLine()) != null)
+        {
+    		stream.add(l + "\n");
+    	}
+
+        XMLStruct xml = new XMLStruct();
+        xml.keepWS = keepWS;
+        xml.parse(stream);
+
+        return xml;
+    }
+
     private int parse(CStream<String> stream) throws BadSyntaxException
     {
         return parse(stream, 0);
@@ -37,6 +73,7 @@ public class XMLStruct
         String contents = "";
 
         String str = "";
+        String pastStr = "";
 
         while ((str = stream.peek()) != null)
         {
@@ -56,7 +93,10 @@ public class XMLStruct
                             contents = prevStr + str.substring(j, i);
                             prevStr = "";
                             if (contents.length() > 0)
-                                children.add(new Child(contents));
+                            {
+                                if (keepWS || !onlyWS(contents))
+                                    children.add(new Child(contents));
+                            }
 
                             j = i;
                             ++i;
@@ -98,14 +138,43 @@ public class XMLStruct
                         break;
                     case PARSE_END:
                         j = i;
-                        char[] close = {'>'};
-                        i = skipUntil(str, i, close, STRING_ESCAPES);
+                        i = skipUntil(str, i, CLOSERS, STRING_ESCAPES);
 
                         if (i < str.length())
                         {
                             contents = prevStr + str.substring(j, i);
                             prevStr = "";
-                            // process tag contents
+
+                            if (str.charAt(i) == '/')
+                            {
+                                if (!closeTag)
+                                {
+                                    closeTag = true;
+                                    parseOpen(contents);
+
+                                    i = skipWS(str, i + 1);
+
+                                    if (str.charAt(i) != '>')
+                                    {
+                                        throw new BadSyntaxException("Improper self-closing tag: " + str);
+                                    }
+                                }
+                                else
+                                {
+                                    throw new BadSyntaxException("Close tag marked self-closing: " + str);
+                                }
+                            }
+                            else
+                            {
+                                if (!closeTag)
+                                {
+                                    parseOpen(contents);
+                                }
+                                else
+                                {
+                                    parseClose(contents);
+                                }
+                            }
 
                             ++i;
                             if (closeTag)
@@ -129,11 +198,133 @@ public class XMLStruct
             }
 
             i = 0;
-            stream.get();
+            pastStr = stream.get();
+        }
+
+        if (!closeTag)
+        {
+            throw new BadSyntaxException("Open tag without matching close: " + pastStr);
         }
 
         return str.length();
     }
+
+    private void parseOpen(String str) throws BadSyntaxException
+    {
+        int j, i;
+
+        // Find the type of the tag
+        j = skipWS(str, 0);
+        i = skipUntil(str, j, WHITESPACE, null);
+        type = evalBS(str.substring(j, i));
+
+        // Get arguments
+        while ((j = skipWS(str, i)) < str.length())
+        {
+            // Get the name of the argument
+            String name;
+
+            i = skipUntil(str, j, WHITESPACE_OR_EQ, STRING_ESCAPES);
+            name = evalBS(str.substring(j, i));
+
+            if (name.length() == 0)
+                throw new BadSyntaxException("Argument without name: <" + str + ">");
+
+            // Get equals sign
+            j = skipWS(str, i);
+
+            if (j >= str.length() || str.charAt(j) != '=')
+                throw new BadSyntaxException("Argument must be assigned with equals: <" + str + ">");
+
+            i = j + 1;
+
+            // Get open quote
+            j = skipWS(str, i);
+
+            if (j >= str.length() || str.charAt(j) != '\"')
+                throw new BadSyntaxException("Argument value must be enclosed in quotes: <" + str + ">");
+
+            i = j + 1;
+
+            // Get the value of the argument
+            String val;
+
+            j = i;
+            char[] close = {'\"'};
+            i = skipUntil(str, j, close, STRING_ESCAPES);
+            val = evalBS(str.substring(j, i));
+
+            // Get the close quote
+            if (i >= str.length() || str.charAt(i) != '\"')
+                throw new BadSyntaxException("Argument value must be enclosed in quotes: <" + str + ">");
+
+            i = i + 1;
+
+            // Add to args list
+            args.add(new Argument(name, val));
+        }
+    }
+
+    private void parseClose(String str) throws BadSyntaxException
+    {
+        int j, i;
+
+        // Find the type of the tag
+        j = skipWS(str, 0);
+        i = skipUntil(str, j, WHITESPACE, null);
+        String closeType = evalBS(str.substring(j, i));
+
+        if (!closeType.equals(type))
+        {
+            throw new BadSyntaxException("Close tag without matching open: </" + str + ">");
+        }
+
+        i = skipWS(str, i);
+        if (i != str.length())
+        {
+            throw new BadSyntaxException("Invalid close tag: </" + str + ">");
+        }
+    }
+
+    public XMLStruct getChildTag(int index)
+    {
+        if (index < 0 || index >= children.size())
+            return null;
+
+        Child c = children.get(index);
+        return c.struct;
+    }
+
+    public String getChildString(int index)
+    {
+        if (index < 0 || index >= children.size())
+            return null;
+
+        Child c = children.get(index);
+        return c.string;
+    }
+
+    public String toString()
+    {
+        String str = "";
+
+        str += "<";
+        str += type;
+        for (Argument arg : args)
+            str += " " + arg;
+        str += ">";
+
+        for (Child c : children)
+        {
+            str += c;
+        }
+
+        str += "</" + type + ">";
+
+        return str;
+    }
+
+    // Static
 
     private enum ParseState
     {
@@ -144,8 +335,11 @@ public class XMLStruct
     }
 
     private static final char[] STRING_ESCAPES = {'"', '\''};
+    private static final char[] WHITESPACE = {' ', '\n', '\r', '\t'};
+    private static final char[] WHITESPACE_OR_EQ = {' ', '\n', '\r', '\t', '='};
+    private static final char[] CLOSERS = {'>', '/'};
 
-    private static int skipWS(String str, int i) throws BadSyntaxException
+    private static int skipWS(String str, int i)
     {
         for (; i < str.length(); ++i)
         {
@@ -208,30 +402,64 @@ public class XMLStruct
         return i;
     }
 
-    public String toString()
+    private String evalBS(String str) throws BadSyntaxException
     {
-        String str = "";
+        boolean backspace = false;
 
-        str += "<TAG>";
-
-        for (Child c : children)
+        for (int i = 0; i < str.length(); ++i)
         {
-            if (c.which == 0)
-                str += c.struct;
-            else
-                str += c.string;
+            char c = str.charAt(i);
+
+            if (!backspace && c == '\\')
+            {
+                backspace = true;
+                str = str.substring(0, i) + str.substring(i + 1);
+                --i;
+            }
+            else if (backspace)
+            {
+                switch (c)
+                {
+                    case 'n':
+                        str = str.substring(0, i) + "\n" + str.substring(i + 1);
+                        break;
+                    case 't':
+                        str = str.substring(0, i) + "\t" + str.substring(i + 1);
+                        break;
+                    case '\\':
+                        str = str.substring(0, i) + "\\" + str.substring(i + 1);
+                        break;
+                    case '>':
+                    case '\"':
+                    case '\'':
+                    case '=':
+                        str = str.substring(0, i) + c + str.substring(i + 1);
+                        break;
+                    case 'r':
+                        str = str.substring(0, i) + str.substring(i + 1);
+                        --i;
+                        break;
+                    default:
+                        throw new BadSyntaxException("Unrecognized escape sequence: " + str +
+                                                     ", col " + i);
+                }
+                backspace = false;
+            }
         }
 
-        str += "</TAG>";
-
         return str;
+    }
+
+    private static boolean onlyWS(String str)
+    {
+        return skipWS(str, 0) == str.length();
     }
 
     public static class BadSyntaxException extends Exception
     {
         public BadSyntaxException(String context)
         {
-            super("Bad syntax: " + context + ".");
+            super(context);
         }
     }
 
@@ -254,26 +482,42 @@ public class XMLStruct
             string = _string;
             which = 1;
         }
+
+        public String toString()
+        {
+            if (which == 0)
+                return "" + struct;
+            else
+                return string;
+        }
+    }
+
+    private static class Argument
+    {
+        public String name;
+        public String val;
+
+        public Argument(String _name, String _val)
+        {
+            name = _name;
+            val = _val;
+        }
+
+        public String toString()
+        {
+            return name + "=\"" + val + "\"";
+        }
     }
 
     public static void main(String[] args)
     {
         try
         {
-            CStream<String> stream = new CStream<String>();
-
-            stream.add("<hello> \n");
-            stream.add("fdfdfdf<goodbye>\n");
-            stream.add("fdfdfd\nfdfdfdf\n");
-            stream.add("</goodbye>qqqq\n");
-            stream.add("<hey>YO</hey>\n");
-            stream.add("</hello>");
-
-            XMLStruct xml = new XMLStruct(stream);
+            XMLStruct xml = parseFromFile("test.xml", false);
 
             System.out.println(xml);
         }
-        catch (BadSyntaxException e)
+        catch (Exception e)
         {
             System.out.println(e);
         }

@@ -10,6 +10,7 @@ public class CStream<T>
     {
         myList = new LinkedList<T>();
     }
+
     public CStream(Stream<T> stream)
     {
         this();
