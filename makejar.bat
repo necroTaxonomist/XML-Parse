@@ -1,8 +1,10 @@
 @echo off
 
 echo CLEANING
-del .\bin\*.class
+del .\bin\xmlparse\*.class
 echo BUILDING
-javac -d .\bin *.java
+javac -d .\bin .\src\xmlparse\*.java
 echo MAKING JAR
-jar cf .\bin\XMLParse.jar .\bin\*.class
+cd .\bin
+jar cf XMLParse.jar .\xmlparse\*.class
+cd ..\

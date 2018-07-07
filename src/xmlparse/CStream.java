@@ -1,3 +1,5 @@
+package xmlparse;
+
 import java.util.stream.Stream;
 import java.util.LinkedList;
 
