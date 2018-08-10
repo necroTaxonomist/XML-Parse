@@ -109,6 +109,7 @@ public class XMLStruct implements Cloneable
         }
         catch (IOException e)
         {
+            System.out.println("IO Exception");
         }
         finally
     	{
@@ -315,7 +316,7 @@ public class XMLStruct implements Cloneable
         }
 
         if (!prevNL)
-            str += '\n\r';
+            str += "\n\r";
 
         str += "</" + type + ">";
 
@@ -359,8 +360,13 @@ public class XMLStruct implements Cloneable
         String str = "";
         String pastStr = "";
 
+        boolean[] commented = {false};
+
         while ((str = stream.peek()) != null)
         {
+            str = cutComments(str, commented);
+            stream.switchFront(str);
+
             int j = i;
 
             while (i < str.length())
@@ -499,9 +505,10 @@ public class XMLStruct implements Cloneable
     private void parseOpen(String str) throws BadSyntaxException
     {
         int j, i;
+        i = 0;
 
         // Find the type of the tag
-        j = skipWS(str, 0);
+        j = skipWS(str, i);
         i = skipUntil(str, j, WHITESPACE, null);
         type = evalBS(str.substring(j, i));
 
@@ -570,13 +577,57 @@ public class XMLStruct implements Cloneable
         if (!closeType.equals(type))
         {
             throw new BadSyntaxException("Close tag without matching open: </" + str + ">");
-        }
+        }   
 
         i = skipWS(str, i);
         if (i != str.length())
         {
             throw new BadSyntaxException("Invalid close tag: </" + str + ">");
         }
+    }
+
+    private String cutComments(String str, boolean[] commented)
+    {
+        System.out.println("(Start " + commented[0] + ") Cut from \"" + str + "\"");
+
+        int i = 0;
+        int j = i;
+
+        String ret = "";
+
+        while (i < str.length())
+        {
+            if (!commented[0])
+            {
+                i = str.indexOf("<!--", j);
+                if (i < 0)
+                {
+                    ret += str.substring(j);
+                    break;
+                }
+                else
+                {
+                    ret += str.substring(j, i);
+                    i += 4;
+                    commented[0] = true;
+                }
+            }
+            else
+            {
+                j = str.indexOf("-->", i);
+                if (j < 0)
+                {
+                    break;
+                }
+                else
+                {
+                    j += 3;
+                    commented[0] = false;
+                }
+            }
+        }
+
+        return ret;
     }
 
     // Static
@@ -800,6 +851,20 @@ public class XMLStruct implements Cloneable
         public String toString()
         {
             return name + "=\"" + val + "\"";
+        }
+    }
+
+    public static void main(String[] args)
+    {
+        try
+        {
+            XMLStruct xml = parseFromFile("test.xml", true);
+            //XMLStruct xml = parseFromString("<hello></hello>");
+            System.out.println(xml);
+        }
+        catch (Exception e)
+        {
+
         }
     }
 }

@@ -46,4 +46,10 @@ public class CStream<T>
         return myList.peekFirst();
     }
 
+    public void switchFront(T t)
+    {
+        myList.removeFirst();
+        myList.addFirst(t);
+    }
+
 }
