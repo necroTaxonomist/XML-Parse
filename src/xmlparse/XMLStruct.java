@@ -109,7 +109,6 @@ public class XMLStruct implements Cloneable
         }
         catch (IOException e)
         {
-            System.out.println("IO Exception");
         }
         finally
     	{
@@ -588,8 +587,6 @@ public class XMLStruct implements Cloneable
 
     private String cutComments(String str, boolean[] commented)
     {
-        System.out.println("(Start " + commented[0] + ") Cut from \"" + str + "\"");
-
         int i = 0;
         int j = i;
 
